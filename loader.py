@@ -3,7 +3,7 @@ import os
 import numpy as np
 import cv2
 import random
-
+import tensorflow as tf
 # 
 # set = 'training'
 set = 'evaluation'
@@ -47,7 +47,7 @@ def load_batch(batch_size):
 def load_batch_croped(batch_size):
     imgs, masks, depths, annos = load_batch(batch_size)
     concat3 = tf.concat([imgs, masks, depths], axis=0)
-    concat3_croped = tf.random_crop(concat3, [3*batch_size], 256, 256, 3)
+    concat3_croped = tf.random_crop(concat3, [3*batch_size, 256, 256, 3])
     imgs_crop = concat3_croped[:batch_size]
     masks_crop = concat3_croped[batch_size : 2*batch_size]
     depths_crop = concat3_croped[2*batch_size : 3*batch_size]
