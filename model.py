@@ -173,22 +173,22 @@ class CNN:
 
     ## Train
     def fit(self, data):
-        for epoch in range(1, self.n_iter+1):
+        for itrain in range(1, self.n_iter+1):
             train_x, train_y = data.train.next_batch(self.n_batch)
             self.sess.run(self.optm, feed_dict={
                           self.x: train_x, self.y: train_y})
 
-            if epoch % self.n_prt == 0:
+            if itrain % self.n_prt == 0:
                 train_loss = self.get_loss(train_x, train_y)
                 print(
-                    'Your loss ({0}/{1}) : {2}'.format(epoch, self.n_iter, train_loss))
+                    'Your loss ({0}/{1}) : {2}'.format(itrain, self.n_iter, train_loss))
 
-            if epoch % self.n_save == 0:
+            if itrain % self.n_save == 0:
                 self.checkpoint += self.n_save
                 self.save('{0}/{1}/{2}_{3}'.format(self.path,
                                                    'checkpoint', self.ID, self.checkpoint))
 
-            if epoch % self.n_history == 0:
+            if itrain % self.n_history == 0:
                 test_x, test_y = data.test.next_batch(self.n_batch)
                 train_loss = self.get_loss(train_x, train_y)
                 test_loss = self.get_loss(test_x, test_y)
