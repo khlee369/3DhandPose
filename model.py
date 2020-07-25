@@ -94,15 +94,14 @@ class Hand3DPoseNet:
 
             self.hand_seg_pred = self.HandSegNet(imgs)
             self.loss_seg = self.cross_entropy(self.hand_seg_pred, self.masks_seg)
-
+        
             # Pose Net
             # pass
 
             # PosePrior & Viewpoint
             # pass
 
-            self.optm = tf.train.AdamOptimizer(
-                learning_rate=self.LR).minimize(self.loss_seg)
+            self.optm = tf.train.AdamOptimizer(learning_rate=self.LR).minimize(self.loss_seg)
             self.init = tf.global_variables_initializer()
             self.saver = tf.train.Saver(max_to_keep=None)
 
@@ -116,12 +115,9 @@ class Hand3DPoseNet:
     def fully_connected_layer(self, input_tensor, name, n_out, activation_fn=tf.nn.relu):
         n_in = input_tensor.get_shape()[-1].value
         with tf.variable_scope(name):
-            weight = tf.get_variable(
-                'weight', [n_in, n_out], tf.float32, xavier_initializer())
-            bias = tf.get_variable(
-                'bias', [n_out], tf.float32, tf.constant_initializer(0.0))
-            logits = tf.add(tf.matmul(input_tensor, weight),
-                            bias, name='logits')
+            weight = tf.get_variable('weight', [n_in, n_out], tf.float32, xavier_initializer())
+            bias = tf.get_variable('bias', [n_out], tf.float32, tf.constant_initializer(0.0))
+            logits = tf.add(tf.matmul(input_tensor, weight), bias, name='logits')
             if activation_fn is None:
                 return logits
             else:
@@ -130,12 +126,9 @@ class Hand3DPoseNet:
     def conv_layer(self, input_tensor, name, n_out, kh=3, kw=3, dh=1, dw=1, activation_fn=tf.nn.relu):
         n_in = input_tensor.get_shape()[-1].value
         with tf.variable_scope(name):
-            weight = tf.get_variable(
-                'weight', [kh, kw, n_in, n_out], tf.float32, xavier_initializer())
-            bias = tf.get_variable(
-                'bias', [n_out], tf.float32, tf.constant_initializer(0.0))
-            conv = tf.nn.conv2d(input_tensor, weight, strides=[
-                                1, dh, dw, 1], padding='SAME')
+            weight = tf.get_variable('weight', [kh, kw, n_in, n_out], tf.float32, xavier_initializer())
+            bias = tf.get_variable('bias', [n_out], tf.float32, tf.constant_initializer(0.0))
+            conv = tf.nn.conv2d(input_tensor, weight, strides=[1, dh, dw, 1], padding='SAME')
             conv = tf.nn.bias_add(conv, bias, name='conv')
             if activation_fn is None:
                 return conv
@@ -148,7 +141,7 @@ class Hand3DPoseNet:
                                   1, dh, dw, 1], padding='VALID', name='maxp')
             return maxp
 
-    ## Feature map
+    ## HandSegNet Architecture
     def HandSegNet(self, x):
         # r : adjust number of parameters
         r=4
@@ -182,19 +175,18 @@ class Hand3DPoseNet:
     ## Compute loss
     def cross_entropy(self, output, y):
         with tf.variable_scope('cross_entropy'):
-            loss = tf.reduce_mean(
-                tf.nn.softmax_cross_entropy_with_logits(logits=output, labels=y))
+            loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=output, labels=y))
         return loss
 
-    ## Classifier
-    def clf(self, feature):
-        with tf.variable_scope('clf'):
-            flatten_shape = np.prod(feature.get_shape().as_list()[1:])
-            flatten = tf.reshape(feature, [-1, flatten_shape], name='flatten')
-            hidden1 = self.fully_connected_layer(flatten, 'hidden1', 100)
-            output = self.fully_connected_layer(
-                hidden1, 'output', self.n_output, None)
-        return output
+    # ## Classifier
+    # def clf(self, feature):
+    #     with tf.variable_scope('clf'):
+    #         flatten_shape = np.prod(feature.get_shape().as_list()[1:])
+    #         flatten = tf.reshape(feature, [-1, flatten_shape], name='flatten')
+    #         hidden1 = self.fully_connected_layer(flatten, 'hidden1', 100)
+    #         output = self.fully_connected_layer(
+    #             hidden1, 'output', self.n_output, None)
+    #     return output
 
     ## Train
     def train_HadSegNet(self, loader):
