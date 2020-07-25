@@ -21,23 +21,24 @@ class Hand3DPoseNet:
     
     <Configuration example>
     config = {
-        'ID' : 'test_CNN',
-        'n_iter' : 5000,
+        'ID' : 'test_handseg',
+        'n_iter' : 20000,
         'n_prt' : 100,
-        'input_h' : 28,
-        'input_w' : 28,
-        'input_ch' : 1,
+        'input_h' : 320,
+        'input_w' : 320,
+        'input_ch' : 3,
         'n_output' : 10,
-        'n_batch' : 50,
+        'n_batch' : 8,
         'n_save' : 1000,
         'n_history' : 50,
-        'LR' : 0.0001
+        'LR' : 1e-5
     }
     '''
 
     def __init__(self, config):
         self.ID = config['ID']
         self.n_iter = config['n_iter']
+
         self.n_prt = config['n_prt']
         self.input_h = config['input_h']
         self.input_w = config['input_w']
@@ -89,10 +90,16 @@ class Hand3DPoseNet:
             # there are total 34 classes
             masks_hand = tf.greater(masks[:,:,:,0], 1)
             masks_bg = tf.logical_not(masks_hand)
-            self.masks_seg = tf.cast(tf.stack([masks_hand, masks_bg], 3), tf.float32)
+            self.masks_seg = tf.cast(tf.stack([masks_bg, masks_hand], 3), tf.float32)
 
             self.hand_seg_pred = self.HandSegNet(imgs)
             self.loss_seg = self.cross_entropy(self.hand_seg_pred, self.masks_seg)
+
+            # Pose Net
+            # pass
+
+            # PosePrior & Viewpoint
+            # pass
 
             self.optm = tf.train.AdamOptimizer(
                 learning_rate=self.LR).minimize(self.loss_seg)
@@ -143,6 +150,7 @@ class Hand3DPoseNet:
 
     ## Feature map
     def HandSegNet(self, x):
+        # r : adjust number of parameters
         r=4
         with tf.variable_scope('HandSegNet'):
             conv1_1 = self.conv_layer(x, 'conv1_1', 16*r)
