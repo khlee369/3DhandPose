@@ -18,6 +18,8 @@ class Hand3DPoseNet:
     n_save : Model save cycle
     n_history : Train/Test loss save cycle
     LR : Learning rate
+    random_crop : Random crop by 256x256 when training HandSegNet
+    training : True or False, it will determine dropout condition
     
     <Configuration example>
     config = {
@@ -31,14 +33,15 @@ class Hand3DPoseNet:
         'n_batch' : 8,
         'n_save' : 1000,
         'n_history' : 50,
-        'LR' : 1e-5
+        'LR' : 1e-5,
+        'random_crop' : True,
+        'training' : True,
     }
     '''
 
     def __init__(self, config):
         self.ID = config['ID']
         self.n_iter = config['n_iter']
-
         self.n_prt = config['n_prt']
         self.input_h = config['input_h']
         self.input_w = config['input_w']
@@ -48,6 +51,8 @@ class Hand3DPoseNet:
         self.n_save = config['n_save']
         self.n_history = config['n_history']
         self.LR = config['LR']
+        self.random_crop = config['random_crop']
+        self.training = config['training']
 
         # model save
         # the model saved automatically when it is initialized
@@ -74,16 +79,25 @@ class Hand3DPoseNet:
 
         self.graph = tf.Graph()
         with self.graph.as_default():
-            self.imgs = tf.placeholder(tf.float32, [None, self.input_h, self.input_w, self.input_ch], name='imgs')
-            self.masks = tf.placeholder(tf.float32, [None, self.input_h, self.input_w, self.input_ch], name='masks')
-            self.depths = tf.placeholder(tf.float32, [None, self.input_h, self.input_w, self.input_ch], name='depths')
+            # self.imgs = tf.placeholder(tf.float32, [None, self.input_h, self.input_w, self.input_ch], name='imgs')
+            # self.masks = tf.placeholder(tf.float32, [None, self.input_h, self.input_w, self.input_ch], name='masks')
+            # self.depths = tf.placeholder(tf.float32, [None, self.input_h, self.input_w, self.input_ch], name='depths')
 
-            # random crop
-            concat3 = tf.concat([self.imgs, self.masks, self.depths], axis=0)
-            concat3_croped = tf.random_crop(concat3, [3*self.n_batch, 256, 256, 3])
-            imgs = concat3_croped[:self.n_batch]
-            masks = concat3_croped[self.n_batch : 2*self.n_batch]
-            depths = concat3_croped[2*self.n_batch : 3*self.n_batch]
+            # input_h and input_w to be determined to predict xyz coordinates(i.e. for PosePrior)
+            self.imgs = tf.placeholder(tf.float32, [None, None, None, self.input_ch], name='imgs')
+            self.masks = tf.placeholder(tf.float32, [None, None, None, self.input_ch], name='masks')
+            self.depths = tf.placeholder(tf.float32, [None, None, None, self.input_ch], name='depths')
+
+            imgs = self.imgs
+            masks = self.masks
+            depths = self.depths
+            # random crop image for training HandSegNet
+            if self.random_crop:
+                concat3 = tf.concat([self.imgs, self.masks, self.depths], axis=0)
+                concat3_croped = tf.random_crop(concat3, [3*self.n_batch, 256, 256, 3])
+                imgs = concat3_croped[:self.n_batch]
+                masks = concat3_croped[self.n_batch : 2*self.n_batch]
+                depths = concat3_croped[2*self.n_batch : 3*self.n_batch]
 
             # mask have 3 channel but all has same value
             # the value indicate the class, 0 == background, 1 == human, (above 1) == finger 
@@ -96,11 +110,12 @@ class Hand3DPoseNet:
             self.loss_seg = self.cross_entropy(self.hand_seg_pred, self.masks_seg)
         
             # Pose Net
-            # pass
+            # ...
 
             # PosePrior & Viewpoint
-            # pass
+            # ...
 
+            # 
             self.optm = tf.train.AdamOptimizer(learning_rate=self.LR).minimize(self.loss_seg)
             self.init = tf.global_variables_initializer()
             self.saver = tf.train.Saver(max_to_keep=None)
@@ -112,7 +127,7 @@ class Hand3DPoseNet:
         print('Model will be saved at : {}'.format(self.path))
 
     ## Layers
-    def fully_connected_layer(self, input_tensor, name, n_out, activation_fn=tf.nn.relu):
+    def fc_layer(self, input_tensor, name, n_out, activation_fn=tf.nn.relu):
         n_in = input_tensor.get_shape()[-1].value
         with tf.variable_scope(name):
             weight = tf.get_variable('weight', [n_in, n_out], tf.float32, xavier_initializer())
@@ -172,6 +187,109 @@ class Hand3DPoseNet:
 
         return upsampling
 
+    ## PoseNet Architecture
+    # Outputs of the network are predicted score maps c from layers 17,24,31
+    def PoseNet(self, x):
+        with tf.variable_scope('PoseNet'):
+            conv1_1 = self.conv_layer(x, 'conv1_1', 64)
+            conv1_2 = self.conv_layer(conv1_1, 'conv1_2', 64)
+            maxp1 = self.pool_layer(conv1_2, 'maxp1')
+
+            conv2_1 = self.conv_layer(maxp1, 'conv2_1', 128)
+            conv2_2 = self.conv_layer(conv2_1, 'conv2_2', 128)
+            maxp2 = self.pool_layer(conv2_2, 'maxp1')
+
+            conv3_1 = self.conv_layer(maxp2, 'conv3_1', 256)
+            conv3_2 = self.conv_layer(conv3_1, 'conv3_2', 256)
+            conv3_3 = self.conv_layer(conv3_2, 'conv3_3', 256)
+            conv3_4 = self.conv_layer(conv3_3, 'conv3_4', 256)
+            maxp3 = self.pool_layer(conv3_4, 'maxp1')
+
+            conv4_1 = self.conv_layer(maxp3, 'conv4_1', 512)
+            conv4_2 = self.conv_layer(conv4_1, 'conv4_2', 512)
+            conv4_3 = self.conv_layer(conv4_2, 'conv4_3', 512)
+            conv4_4 = self.conv_layer(conv4_3, 'conv4_4', 512)
+            conv4_5 = self.conv_layer(conv4_4, 'conv4_5', 512)
+
+            conv_17 = self.conv_layer(conv4_5, 'conv_17', 21, kh=1, kw=1)
+            concat18 = tf.concat([conv4_5, conv_17], axis=3)
+
+            conv5_1 = self.conv_layer(concat18, 'conv5_1', 128, kh=7, kw=7)
+            conv5_2 = self.conv_layer(conv5_1, 'conv5_2', 128, kh=7, kw=7)
+            conv5_3 = self.conv_layer(conv5_2, 'conv5_3', 128, kh=7, kw=7)
+            conv5_4 = self.conv_layer(conv5_3, 'conv5_4', 128, kh=7, kw=7)
+            conv5_5 = self.conv_layer(conv5_4, 'conv5_5', 128, kh=7, kw=7)
+
+            conv_24 = self.conv_layer(conv5_5, 'conv_24', 21, kh=1, kw=1)
+            concat25 = tf.concat([concat18, conv_24], axis=3)
+
+            conv6_1 = self.conv_layer(concat25, 'conv6_1', 128, kh=7, kw=7)
+            conv6_2 = self.conv_layer(conv6_1, 'conv6_2', 128, kh=7, kw=7)
+            conv6_3 = self.conv_layer(conv6_2, 'conv6_3', 128, kh=7, kw=7)
+            conv6_4 = self.conv_layer(conv6_3, 'conv6_4', 128, kh=7, kw=7)
+            conv6_5 = self.conv_layer(conv6_4, 'conv6_5', 128, kh=7, kw=7)
+
+            conv_31 = self.conv_layer(conv6_5, 'conv_31', 21, kh=1, kw=1)
+
+        return {
+            'conv_17' : conv_17,
+            'conv_24' : conv_24,
+            'conv_31': conv_31,
+        }
+
+    ## PosePrior Architecture
+    # Canonical Coordinates
+    # hand side should be calculated from data, process needed to be implemented
+    # remove hand_side default value after implement finding hand_side
+    def CanCoordNet(self, x, hand_side=tf.constant([[1, 0]], tf.float32)):
+        with tf.variable_scope('CanCoordNet'):
+            conv1_1 = self.conv_layer(x, 'conv1_1', 32)
+            conv1_2 = self.conv_layer(conv1_1, 'conv1_2', 32, dh=2, dw=2)
+
+            conv1_3 = self.conv_layer(conv1_2, 'conv1_3', 64)
+            conv1_4 = self.conv_layer(conv1_3, 'conv1_4', 64, dh=2, dw=2)
+
+            conv1_5 = self.conv_layer(conv1_4, 'conv1_5', 128)
+            conv1_6 = self.conv_layer(conv1_5, 'conv1_6', 128, dh=2, dw=2)
+
+            flatten = tf.layers.flatten(conv1_6)
+            flatten = tf.concat([flatten, hand_side], axis=1)
+            fc1 = self.fc_layer(flatten, 'fc1', 512)
+            if self.training:
+                fc1 = tf.nn.dropout(fc1, 0.8)
+            fc2 = self.fc_layer(fc1, 'fc2', 512)
+            if self.training:
+                fc2 = tf.nn.dropout(fc2, 0.8)
+            # 21 keypoints * 3d(x,y,z) == 63
+            kp_xyz = self.fc_layer(fc2, 'kp_xyz', 63, activation_fn=None)
+        return kp_xyz
+
+    # Viewpoint
+    # hand side should be calculated from data, process needed to be implemented
+    # remove hand_side default value after implement finding hand_side
+    def ViewPointNet(self, x, hand_side=tf.constant([[1, 0]], tf.float32)):
+        with tf.variable_scope('ViewPointNet'):
+            conv1_1 = self.conv_layer(x, 'conv1_1', 32)
+            conv1_2 = self.conv_layer(conv1_1, 'conv1_2', 32, dh=2, dw=2)
+
+            conv1_3 = self.conv_layer(conv1_2, 'conv1_3', 64)
+            conv1_4 = self.conv_layer(conv1_3, 'conv1_4', 64, dh=2, dw=2)
+
+            conv1_5 = self.conv_layer(conv1_4, 'conv1_5', 128)
+            conv1_6 = self.conv_layer(conv1_5, 'conv1_6', 128, dh=2, dw=2)
+
+            flatten = tf.layers.flatten(conv1_6)
+            flatten = tf.concat([flatten, hand_side], axis=1)
+            fc1 = self.fc_layer(flatten, 'fc1', 512)
+            if self.training:
+                fc1 = tf.nn.dropout(fc1, 0.8)
+            fc2 = self.fc_layer(fc1, 'fc2', 512)
+            if self.training:
+                fc2 = tf.nn.dropout(fc2, 0.8)
+            # coordinate of view point in 3d(x,y,z)
+            vp_xyz = self.fc_layer(fc2, 'vp_xyz', 3, activation_fn=None)
+        return vp_xyz
+
     ## Compute loss
     def cross_entropy(self, output, y):
         with tf.variable_scope('cross_entropy'):
@@ -211,12 +329,6 @@ class Hand3DPoseNet:
             #     test_loss = self.get_loss(test_x, test_y)
             #     self.history['train'].append(train_loss)
             #     self.history['test'].append(test_loss)
-
-    ## Predict
-    # def predict(self, x):
-    #     pred = self.sess.run(self.output, feed_dict={self.x: x})
-    #     pred = np.argmax(pred, axis=1)
-    #     return pred
 
     ## Save/Restore
     def save(self, path):
