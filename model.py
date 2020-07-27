@@ -56,7 +56,7 @@ class Hand3DPoseNet:
 
         # model save
         # the model saved automatically when it is initialized
-        # if there is same model on it's directory, the remain one can be removed.
+        # if there is a same model name on it's directory, the remain one can be removed.
         # if you want to load model, you need to use diffrent name for model
         self.history = {
             'train': [],
@@ -79,14 +79,14 @@ class Hand3DPoseNet:
 
         self.graph = tf.Graph()
         with self.graph.as_default():
-            # self.imgs = tf.placeholder(tf.float32, [None, self.input_h, self.input_w, self.input_ch], name='imgs')
-            # self.masks = tf.placeholder(tf.float32, [None, self.input_h, self.input_w, self.input_ch], name='masks')
-            # self.depths = tf.placeholder(tf.float32, [None, self.input_h, self.input_w, self.input_ch], name='depths')
+            self.imgs = tf.placeholder(tf.float32, [None, self.input_h, self.input_w, self.input_ch], name='imgs')
+            self.masks = tf.placeholder(tf.float32, [None, self.input_h, self.input_w, self.input_ch], name='masks')
+            self.depths = tf.placeholder(tf.float32, [None, self.input_h, self.input_w, self.input_ch], name='depths')
 
-            # input_h and input_w to be determined to predict xyz coordinates(i.e. for PosePrior)
-            self.imgs = tf.placeholder(tf.float32, [None, None, None, self.input_ch], name='imgs')
-            self.masks = tf.placeholder(tf.float32, [None, None, None, self.input_ch], name='masks')
-            self.depths = tf.placeholder(tf.float32, [None, None, None, self.input_ch], name='depths')
+            # input_h and input_w to be determined to upsample
+            # self.imgs = tf.placeholder(tf.float32, [None, None, None, self.input_ch], name='imgs')
+            # self.masks = tf.placeholder(tf.float32, [None, None, None, self.input_ch], name='masks')
+            # self.depths = tf.placeholder(tf.float32, [None, None, None, self.input_ch], name='depths')
 
             imgs = self.imgs
             masks = self.masks
@@ -109,8 +109,24 @@ class Hand3DPoseNet:
             self.hand_seg_pred = self.HandSegNet(imgs)
             self.loss_seg = self.cross_entropy(self.hand_seg_pred, self.masks_seg)
         
+            # intermediate process
+            # crop hand and resize based on Hand Segmentation
+            binary_mask = tf.nn.softmax(self.hand_seg_pred) # shape [B, H, W, 1]
+            bianry_mask = binary_mask[:,:,:,0] # shape [B, H, W]
+            bianry_mask = tf.round(binary_mask) # this mask is hand segmentation
+
+            imgs_cr, ohs, ows, scale_hs, scale_ws = self.crop_and_resize(imgs, binary_mask)
+            # this will be utilized to scale keypoints(u,v)
+            self.ohs = ohs
+            self.ows = ows
+            self.scale_hs = scale_hs
+            self.scale_ws = scale_ws
             # Pose Net
             # ...
+
+            # ground truth of scoremap
+            # self.kp_scoremap_gt = self.gaussian_scoremap()
+            self.kp_scoremap = self.PoseNet(imgs_cr)
 
             # PosePrior & Viewpoint
             # ...
@@ -183,7 +199,11 @@ class Hand3DPoseNet:
             conv4_5 = self.conv_layer(conv4_4, 'conv4_5', 128*r)
 
             conv_out = self.conv_layer(conv4_5, 'conv_out', 2, kh=1, kw=1)
-            upsampling = tf.image.resize_images(conv_out, [256, 256])
+
+            # According to paper, upsampling size is 256x256
+            # but it must be meaning that upsampling size be same with input size
+            _, H, W, _ = x.get_shape().as_list()
+            upsampling = tf.image.resize_images(conv_out, [H, W])
 
         return upsampling
 
@@ -230,12 +250,8 @@ class Hand3DPoseNet:
             conv6_5 = self.conv_layer(conv6_4, 'conv6_5', 128, kh=7, kw=7)
 
             conv_31 = self.conv_layer(conv6_5, 'conv_31', 21, kh=1, kw=1)
-
-        return {
-            'conv_17' : conv_17,
-            'conv_24' : conv_24,
-            'conv_31': conv_31,
-        }
+            kp_scoremap = tf.image.resize_images(conv_31, [256,256])
+        return kp_scoremap
 
     ## PosePrior Architecture
     # Canonical Coordinates
@@ -296,6 +312,73 @@ class Hand3DPoseNet:
             loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=output, labels=y))
         return loss
 
+    ## Crop hand image tightly by HandSegmentation
+    # find crop offset (offset_H, offset_W) and bounding box size (target_H, target_W)
+    # output is list of tf value
+    def intermediate_crop_offset(self, imgs, binary_mask):
+        # detect axis_aligned bounding box
+        # find argmin(w,h) and armax(w,h) of binary_mask
+        binary_mask = tf.cast(binary_mask, tf.int32)
+        binary_mask = tf.equal(binary_mask, 1)
+        s = binary_mask.get_shape().as_list()
+
+        x_range = tf.expand_dims(tf.range(s[1]), 1)
+        y_range = tf.expand_dims(tf.range(s[2]), 0)
+        X = tf.tile(x_range, [1, s[2]])
+        Y = tf.tile(y_range, [s[1], 1])
+
+        # bounding box
+        ohs = []  # offset_height
+        ows = []  # offset_width
+        ths = []  # target_hegith
+        tws = []  # target_width
+
+        # s[0] must be equal to self.n_batch
+        for i in range(s[0]):
+            X_masked = tf.cast(tf.boolean_mask(
+                X, binary_mask[i, :, :]), tf.float32)
+            Y_masked = tf.cast(tf.boolean_mask(
+                Y, binary_mask[i, :, :]), tf.float32)
+
+            x_min = tf.cast(tf.reduce_min(X_masked), tf.int32)
+            x_max = tf.cast(tf.reduce_max(X_masked), tf.int32)
+            y_min = tf.cast(tf.reduce_min(Y_masked), tf.int32)
+            y_max = tf.cast(tf.reduce_max(Y_masked), tf.int32)
+
+            ohs.append(x_min)
+            ows.append(y_min)
+            ths.append(x_max - x_min)
+            tws.append(y_max - y_min)
+
+        return ohs, ows, ths, tws
+    
+    # calcuate bilinear scale by resize
+    # it will scale keypoints(u,v) pixel wise position
+    # ths, tws are list of tf value
+    def calc_resize_scale(self, size_h, size_w, ths, tws):
+        scale_hs = tf.stack(ths)//size_h
+        scale_ws = tf.stack(tws)//size_w
+        return scale_hs, scale_ws
+
+    def crop_and_resize(self, imgs, binary_mask, resize_size=[256, 256]):
+        # Temporary outputs, function need to be implemented
+        imgs_cr = []
+        crop_offset = tf.ones([self.n_batch, 2])
+        crop_scale = tf.ones([self.n_batch, 1])
+        # End
+        s = binary_mask.get_shape().as_list()
+
+        ohs, ows, ths, tws = self.intermediate_crop_offset(imgs, binary_mask)
+
+        for idx in range(s[0]):
+            img_crop = tf.image.crop_to_bounding_box(imgs[idx], ohs[idx], ows[idx], ths[idx], tws[idx])
+            img_crop_resize = tf.image.resize_images(img_crop, resize_size)
+            imgs_cr.append(img_crop_resize)
+
+        imgs_cr = tf.stack(imgs_cr)
+        scale_hs, scale_ws = self.calc_resize_scale(resize_size[0], resize_size[1], ths, tws)
+        return imgs_cr, ohs, ows, scale_hs, scale_ws
+
     # ## Classifier
     # def clf(self, feature):
     #     with tf.variable_scope('clf'):
@@ -317,6 +400,7 @@ class Hand3DPoseNet:
                 loss_seg = self.sess.run(self.loss_seg, feed_dict={
                     self.imgs: imgs, self.masks: masks, self.depths: depths})
                 print('loss seg ({0}/{1}) : {2}'.format(itrain, self.n_iter, loss_seg))
+
 
             if itrain % self.n_save == 0:
                 self.checkpoint += self.n_save
