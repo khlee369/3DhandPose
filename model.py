@@ -112,8 +112,8 @@ class Hand3DPoseNet:
             # intermediate process
             # crop hand and resize based on Hand Segmentation
             binary_mask = tf.nn.softmax(self.hand_seg_pred) # shape [B, H, W, 1]
-            bianry_mask = binary_mask[:,:,:,0] # shape [B, H, W]
-            bianry_mask = tf.round(binary_mask) # this mask is hand segmentation
+            binary_mask = binary_mask[:,:,:,0] # shape [B, H, W]
+            binary_mask = tf.round(binary_mask) # this mask is hand segmentation
 
             imgs_cr, ohs, ows, scale_hs, scale_ws = self.crop_and_resize(imgs, binary_mask)
             # this will be utilized to scale keypoints(u,v)
@@ -334,7 +334,7 @@ class Hand3DPoseNet:
         tws = []  # target_width
 
         # s[0] must be equal to self.n_batch
-        for i in range(s[0]):
+        for i in range(self.n_batch):
             X_masked = tf.cast(tf.boolean_mask(
                 X, binary_mask[i, :, :]), tf.float32)
             Y_masked = tf.cast(tf.boolean_mask(
@@ -370,7 +370,7 @@ class Hand3DPoseNet:
 
         ohs, ows, ths, tws = self.intermediate_crop_offset(imgs, binary_mask)
 
-        for idx in range(s[0]):
+        for idx in range(self.n_batch):
             img_crop = tf.image.crop_to_bounding_box(imgs[idx], ohs[idx], ows[idx], ths[idx], tws[idx])
             img_crop_resize = tf.image.resize_images(img_crop, resize_size)
             imgs_cr.append(img_crop_resize)
