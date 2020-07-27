@@ -152,6 +152,7 @@ SegNet_test.load(checkpoint) # (e.g) checkpoint = './handseg_01/checkpoint/hands
 
 ### Example output of HandSegNet
 ![segsample00](./sample/seg00.png)
+
 ![segsample01](./sample/seg01.png)
 
 
