@@ -39,7 +39,13 @@ class Data():
         image_list = []
         mask_list = []
         depth_list = []
-        anno_list = []
+        # anno_list = []
+
+        uv_list = []  # u, v coordinates of 42 hand keypoints, pixel
+        vis_list = []  # visibility of the keypoints, boolean
+        xyz_list = []  # x, y, z coordinates of the keypoints, in meters
+        inmatrix_list = []  # matrix containing intrinsic parameters
+
         for i in range(batch_size):
             idx = random.randint(0, self.max_len-1)
             image, mask, depth = self.load_id(idx)
@@ -48,9 +54,21 @@ class Data():
             image_list.append(image)
             mask_list.append(mask)
             depth_list.append(depth)
-            anno_list.append(anno)
+            # anno_list.append(anno)
 
-        return np.array(image_list), np.array(mask_list), np.array(depth_list), np.array(anno_list)
+            uv_list.append(anno['uv_vis'][:, :2])
+            vis_list.append((anno['uv_vis'][:, 2] == 1))
+            xyz_list.append(anno['xyz'])
+            inmatrix_list.append(anno['K'])
+
+        annos = {
+            'uv' : np.array(uv_list),
+            'vis' : np.array(vis_list),
+            'xyz' : np.array(xyz_list),
+            'inmatrix' : np.array(inmatrix_list),
+        }
+
+        return np.array(image_list), np.array(mask_list), np.array(depth_list), annos
 
     # legacy
     # can not feed tensor to placeholder, data will be crop after feeded in placeholder
