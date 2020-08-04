@@ -63,7 +63,8 @@ class Hand3DPoseNet:
             'test': []
         }
         self.checkpoint = 0
-        self.path = './{}'.format(self.ID)
+        # self.path = './{}'.format(self.ID)
+        self.path = './../3DhandPose_checkpoint/{}'.format(self.ID)
         try:
             os.mkdir(self.path)
             os.mkdir('{0}/{1}'.format(self.path, 'checkpoint'))
@@ -356,8 +357,8 @@ class Hand3DPoseNet:
     # it will scale keypoints(u,v) pixel wise position
     # ths, tws are list of tf value
     def calc_resize_scale(self, size_h, size_w, ths, tws):
-        scale_hs = tf.stack(ths)//size_h
-        scale_ws = tf.stack(tws)//size_w
+        scale_hs = size_h/tf.stack(ths)
+        scale_ws = size_w/tf.stack(tws)
         return scale_hs, scale_ws
 
     def crop_and_resize(self, imgs, binary_mask, resize_size=[256, 256]):
