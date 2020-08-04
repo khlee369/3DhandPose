@@ -151,10 +151,15 @@ SegNet_test.load(checkpoint) # (e.g) checkpoint = './handseg_01/checkpoint/hands
 ```
 
 ### Example output of HandSegNet
-![segsample00](./sample/seg00.PNG)
-![segsample01](./sample/seg01.PNG)
+![segsample00](./sample/seg00.png)
+
+![segsample01](./sample/seg01.png)
 
 
 ## Issues
+
+- When doing image intermediate process (crop and resize) based on HandSegNet's hand segmentation, offset and scale should be applied to the coordinates of hand keypoints. Since keypoints have 3D(x,y,z) as well as 2D(u,v), 3D coordinates must be transformed when cropping and resizing 2D image, but this is not solved.
+
+- When training PoseNet, ground truth generation of the score maps is based on gaussian normal distributions with a sigma of 5 pixels and the mean being equal to the given keypoint location. For invisible keypoints the map is zero everywhere.
 
 [paper1]: https://arxiv.org/pdf/1705.01389.pdf
