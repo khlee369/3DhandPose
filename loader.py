@@ -5,7 +5,7 @@ import cv2
 import random
 import tensorflow as tf
 # 
-path_to_db = './RHD_published_v2/'
+path_to_db = './../RHD_published_v2/'
 # sets = 'training'
 # sets = 'evaluation'
 # f1 = open('./RHD_published_v2/{}/anno_{}.pickle'.format(sets, sets), 'rb')
@@ -17,7 +17,7 @@ class Data():
 
     def __init__(self, data_set='training'):
         self.data_set = data_set
-        f1 = open('./RHD_published_v2/{}/anno_{}.pickle'.format(self.data_set, self.data_set), 'rb')
+        f1 = open(path_to_db + '{}/anno_{}.pickle'.format(self.data_set, self.data_set), 'rb')
         self.anno_all = pickle.load(f1)
         f1.close()
         self.max_len = len(self.anno_all)
